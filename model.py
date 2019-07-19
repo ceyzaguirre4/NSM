@@ -15,7 +15,7 @@ N = 3
 # dummy function
 def to_glove(token):
     return torch.rand(EMBD_DIM)
-
+    
 
 class NSM(nn.Module):
     def __init__(self):
