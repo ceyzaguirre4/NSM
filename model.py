@@ -74,7 +74,7 @@ class NSM(nn.Module):
         #####################################
 
         # initial p_0 is uniform over states
-        p_i_s = torch.ones(BATCH, len(nodes)) / len(nodes)
+        p_i = torch.ones(BATCH, len(nodes)) / len(nodes)
 
         for i in range(N):
             # r_i is the appropiate reasoning instruction for the ith step
@@ -119,7 +119,7 @@ class NSM(nn.Module):
             # update state probabilities (conected to node via relevant relation)
             # TODO: W_r ???
             p_i_r = torch.softmax(torch.bmm(
-                p_i_s.unsqueeze(1),
+                p_i.unsqueeze(1),
                 y_i_e * adjacency_mask
             ).squeeze(1), dim=1)
 
@@ -143,6 +143,7 @@ class NSM(nn.Module):
         pre_logits = self.classifier(torch.cat([m, q], dim=2).squeeze(1))
 
         return pre_logits
+
 
 if __name__ == "__main__":
     #####################################

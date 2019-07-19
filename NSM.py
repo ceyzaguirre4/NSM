@@ -181,7 +181,7 @@ r = torch.bmm(torch.softmax(torch.bmm(h, V.transpose(1, 2)), dim=2), V)
 #
 
 # initial p_0 is uniform over states
-p_i_s = torch.ones(BATCH, len(nodes)) / len(nodes)
+p_i = torch.ones(BATCH, len(nodes)) / len(nodes)
 
 # (everything below is inside recurrent loop)
 #
@@ -246,7 +246,7 @@ y_i_e = torch.sigmoid(
 # update state probabilities (conected to node via relevant relation)
 # TODO: W_r ???
 p_i_r = torch.softmax(torch.bmm(
-    p_i_s.unsqueeze(1),
+    p_i.unsqueeze(1),
     y_i_e * adjacency_mask
 ).squeeze(1), dim=1)
 
