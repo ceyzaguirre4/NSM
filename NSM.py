@@ -20,6 +20,7 @@
 # + {"hidden": true}
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # + {"hidden": true}
 import easydict
@@ -91,7 +92,7 @@ C = torch.cat([C, c_prime], dim=0)
 # + {"heading_collapsed": true, "cell_type": "markdown"}
 # # Scene Graph
 
-# + {"hidden": true, "cell_type": "markdown"}
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
 # ### Dummy data
 
 # + {"hidden": true}
@@ -103,7 +104,7 @@ relations = {
     ('kitten', 'shirt'): 'bite'
 }
 
-# + {"hidden": true, "cell_type": "markdown"}
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
 # ## Preparation
 
 # + {"hidden": true}
@@ -120,6 +121,27 @@ for idx_pair in permutations(range(len(nodes)), 2):
     if pair in relations:
         E[:,idx_pair[0],idx_pair[1]] = torch.rand(EMBD_DIM)   # (TODO)
         adjacency_mask[:,idx_pair[0],idx_pair[1]] = 1
+
+# + {"hidden": true}
+# alternatively we can use hybrid (sparse + dense) tensors to reduce memory and computation overhead
+indices = []
+values = []
+for idx_pair in permutations(range(len(nodes)), 2):
+    pair = tuple(nodes[idx] for idx in idx_pair)
+    if pair in relations:
+        indices.append(idx_pair)
+        values.append(torch.rand(EMBD_DIM))
+
+sparse_adj = torch.sparse.FloatTensor(
+    torch.LongTensor(indices).t(), 
+    torch.stack(values),
+    (len(nodes), len(nodes), EMBD_DIM)
+)
+
+E_sparse = torch.stack([sparse_adj for _ in range(BATCH)])
+
+# + {"hidden": true}
+E_sparse.shape == E.shape
 
 # + {"heading_collapsed": true, "cell_type": "markdown"}
 # # Reasoning Instructions
@@ -223,7 +245,7 @@ for property_idx in range(L+1):
 
 stacked_properties = torch.stack(stacked_properties, dim=2)   # [batch, node, properties]
 
-y_i_s = torch.sigmoid(torch.bmm(
+𝛾_i_s = F.elu(torch.bmm(
     stacked_properties,
     property_R_i.unsqueeze(2)
 ).squeeze(2))
@@ -232,7 +254,7 @@ y_i_s = torch.sigmoid(torch.bmm(
 # bilinear proyecction initialized to identity.
 W_L_plus_1 = torch.eye(EMBD_DIM, requires_grad=True)
 
-y_i_e = torch.sigmoid(
+𝛾_i_e = F.elu(
     torch.bmm(
         torch.bmm(
             E.view(BATCH, -1, EMBD_DIM), 
@@ -243,46 +265,50 @@ y_i_e = torch.sigmoid(
 ).view(BATCH, len(nodes), len(nodes))
 # -
 
+𝛾_i_s.shape, 𝛾_i_e.shape
+
 # update state probabilities (conected to node via relevant relation)
 # TODO: W_r ???
 p_i_r = torch.softmax(torch.bmm(
     p_i.unsqueeze(1),
-    y_i_e * adjacency_mask
+    𝛾_i_e * adjacency_mask
 ).squeeze(1), dim=1)
 
 # update state probabilities (property lookup)
 # TODO: W_s ???
-p_i_s = torch.softmax(y_i_s, dim=1)
+p_i_s = torch.softmax(𝛾_i_s, dim=1)
 
 p_i = r_i_prime * p_i_r + (1 - r_i_prime) * p_i_s
 
-# + {"heading_collapsed": true, "cell_type": "markdown"}
 # # Final clasifier
 #
 # (outside recurrent loop)
 
-# + {"hidden": true}
+# +
 # Sumarize final NSM state
+r_N = r[:,N,:]
+property_R_N = torch.softmax(torch.bmm(
+    D.expand(BATCH, -1, EMBD_DIM),
+    r_N.unsqueeze(2)
+), dim=1).squeeze(2)[:,:-1]
 
-# equivalent to:torch.sum(p_i.unsqueeze(2) * torch.sum(property_R_i.view(10, 1, 3, 1) * S, dim=2), dim=1)
+# equivalent to:torch.sum(p_i.unsqueeze(2) * torch.sum(property_R_N.view(10, 1, 3, 1) * S, dim=2), dim=1)
 m = torch.bmm(
     p_i.unsqueeze(1),
-    torch.sum(property_R_i.view(10, 1, 3, 1) * S, dim=2)
+    torch.sum(property_R_N.view(BATCH, 1, L+1, 1) * S, dim=2)
 )
 
-# + {"hidden": true}
-m.shape
-
-# + {"hidden": true}
+# +
 # final classifier (TODO: hidden dims ???)
 classifier = nn.Sequential(nn.Linear(2*EMBD_DIM, 2*EMBD_DIM),
                            nn.ELU(),
                            nn.Linear(2*EMBD_DIM, OUT_DIM))
 
 pre_logits = classifier(torch.cat([m, q], dim=2).squeeze(1))
+# -
 
-# + {"hidden": true}
 pre_logits.shape
 
-# + {"hidden": true}
+L+1
+
 
