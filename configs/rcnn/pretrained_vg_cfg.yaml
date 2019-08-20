@@ -1,0 +1,11 @@
+MODEL:
+  WEIGHT: "weights/rcnn/faster_rcnn_ckpt.pth"
+  BACKBONE:
+    CONV_BODY: "R-101-C4"
+  ROI_BOX_HEAD:
+    NUM_CLASSES: 151
+  RPN:
+    MIN_SIZE: 4
+INPUT:
+  MAX_SIZE_TRAIN: 1024
+  MAX_SIZE_TEST: 1024
