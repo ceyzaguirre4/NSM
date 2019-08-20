@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-import easydict
 from random import randint
 from itertools import permutations
 
@@ -15,7 +16,7 @@ N = 3
 # dummy function
 def to_glove(token):
     return torch.rand(EMBD_DIM)
-    
+
 
 class NSM(nn.Module):
     def __init__(self):
@@ -24,6 +25,8 @@ class NSM(nn.Module):
         self.W = torch.eye(EMBD_DIM, requires_grad=True)
         self.property_W = [torch.eye(EMBD_DIM, requires_grad=True) for _ in range(L+1)]
         self.W_L_plus_1 = torch.eye(EMBD_DIM, requires_grad=True)
+        self.W_r = nn.Linear(EMBD_DIM, 1, bias=False)
+        self.W_s = nn.Linear(EMBD_DIM, 1, bias=False)
 
         # encoder is lstm (TODO: one direction?)
         self.encoder_lstm = nn.LSTM(input_size=EMBD_DIM, hidden_size=EMBD_DIM, batch_first=True, bidirectional=False)
@@ -84,7 +87,7 @@ class NSM(nn.Module):
             # r_i is the appropiate reasoning instruction for the ith step
             r_i = r[:,i,:]
 
-            R_i = torch.softmax(torch.bmm(
+            R_i = F.softmax(torch.bmm(
                 D.expand(BATCH, -1, EMBD_DIM),
                 r_i.unsqueeze(2)
             ), dim=1).squeeze(2)
@@ -95,41 +98,41 @@ class NSM(nn.Module):
 
             # bilinear proyecctions (one for each property).
             stacked_properties = []
-            for property_idx in range(L+1):
-                stacked_properties.append(torch.bmm(
-                    torch.bmm(
-                        S[:,:,property_idx,:], 
-                        self.property_W[property_idx].expand(BATCH, EMBD_DIM, EMBD_DIM)
-                    ),
-                    r_i.unsqueeze(2)
-                ).squeeze(-1))
-            stacked_properties = torch.stack(stacked_properties, dim=2)   # [batch, node, properties]
-            𝛾_i_s = torch.sigmoid(torch.bmm(
-                stacked_properties,
-                property_R_i.unsqueeze(2)
-            ).squeeze(2))
+            for property_idx in range(L + 1):
+                stacked_properties.append(
+                    torch.mul(
+                        torch.mul(
+                            r_i.unsqueeze(1),
+                            torch.bmm(
+                                S[:, :, property_idx, :],
+                                self.property_W[property_idx].expand(BATCH, EMBD_DIM, EMBD_DIM))),
+                        property_R_i[:, property_idx].view(BATCH, 1, -1).expand(BATCH, 1, EMBD_DIM)))
 
-            # bilinear proyecction
-            𝛾_i_e = torch.sigmoid(
-                torch.bmm(
+            𝛾_i_s = F.elu(torch.sum(torch.stack(stacked_properties, dim=2), dim=2))
+
+
+            # bilinear proyecction 
+            𝛾_i_e = F.elu(
+                torch.mul(
                     torch.bmm(
                         E.view(BATCH, -1, EMBD_DIM), 
-                        self.W_L_plus_1.expand(BATCH, -1, EMBD_DIM)
-                    ),
-                    r_i.unsqueeze(2)
-                )
-            ).view(BATCH, len(nodes), len(nodes))
+                        self.W_L_plus_1.expand(BATCH, EMBD_DIM, EMBD_DIM)
+                    ), r_i.unsqueeze(1))
+            ).view(BATCH, len(nodes), len(nodes), EMBD_DIM)
+
 
             # update state probabilities (conected to node via relevant relation)
-            # TODO: W_r ???
-            p_i_r = torch.softmax(torch.bmm(
-                p_i.unsqueeze(1),
-                𝛾_i_e * adjacency_mask
-            ).squeeze(1), dim=1)
+            p_i_r = F.softmax(
+                self.W_r(
+                    torch.sum(
+                        torch.mul(
+                            𝛾_i_e,
+                            p_i.view(BATCH, -1, 1, 1)
+                        ), dim=1)
+                ).squeeze(2), dim=1)
 
             # update state probabilities (property lookup)
-            # TODO: W_s ???
-            p_i_s = torch.softmax(𝛾_i_s, dim=1)
+            p_i_s = F.softmax(self.W_s(𝛾_i_s).squeeze(2), dim=1)
 
             p_i = r_i_prime * p_i_r + (1 - r_i_prime) * p_i_s
 
@@ -139,9 +142,10 @@ class NSM(nn.Module):
 
         # Sumarize final NSM state
         r_N = r[:,N,:]
-        property_R_N = torch.softmax(torch.bmm(
-            D.expand(BATCH, -1, EMBD_DIM),
-            r_N.unsqueeze(2)
+        property_R_N = F.softmax(
+            torch.bmm(
+                D.expand(BATCH, -1, EMBD_DIM),
+                r_N.unsqueeze(2)
         ), dim=1).squeeze(2)[:,:-1]
 
         # equivalent to:torch.sum(p_i.unsqueeze(2) * torch.sum(property_R_N.view(10, 1, 3, 1) * S, dim=2), dim=1)
@@ -153,7 +157,6 @@ class NSM(nn.Module):
         pre_logits = self.classifier(torch.cat([m, q], dim=2).squeeze(1))
 
         return pre_logits
-
 
 if __name__ == "__main__":
     #####################################

@@ -7,7 +7,7 @@
 #       extension: .py
 #       format_name: light
 #       format_version: '1.4'
-#       jupytext_version: 1.1.1
+#       jupytext_version: 1.2.1
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -23,7 +23,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # + {"hidden": true}
-import easydict
 from random import randint
 from itertools import permutations
 
@@ -33,7 +32,7 @@ from itertools import permutations
 # + {"hidden": true}
 EMBD_DIM = 7
 OUT_DIM = 4
-BATCH = 10
+BATCH = 32
 N = 3
 
 
@@ -220,7 +219,7 @@ i=0
 r_i = r[:,i,:]
 
 # +
-R_i = torch.softmax(torch.bmm(
+R_i = F.softmax(torch.bmm(
     D.expand(BATCH, -1, EMBD_DIM),
     r_i.unsqueeze(2)
 ), dim=1).squeeze(2)
@@ -231,52 +230,46 @@ property_R_i = R_i[:,:-1]
 
 # +
 # bilinear proyecctions (one for each property) initialized to identity.
-property_W = [torch.eye(EMBD_DIM, requires_grad=True) for _ in range(L+1)]
+property_W = [torch.eye(EMBD_DIM, requires_grad=True) for _ in range(L + 1)]
 
 stacked_properties = []
-for property_idx in range(L+1):
-    stacked_properties.append(torch.bmm(
-        torch.bmm(
-            S[:,:,property_idx,:], 
-            property_W[property_idx].expand(BATCH, EMBD_DIM, EMBD_DIM)
-        ),
-        r_i.unsqueeze(2)
-    ).squeeze(-1))
+for property_idx in range(L + 1):
+    stacked_properties.append(
+        torch.mul(
+            torch.mul(
+                r_i.unsqueeze(1),
+                torch.bmm(
+                    S[:, :, property_idx, :],
+                    property_W[property_idx].expand(BATCH, EMBD_DIM, EMBD_DIM))),
+            property_R_i[:, property_idx].view(BATCH, 1, -1).expand(BATCH, 1, EMBD_DIM)))
 
-stacked_properties = torch.stack(stacked_properties, dim=2)   # [batch, node, properties]
-
-𝛾_i_s = F.elu(torch.bmm(
-    stacked_properties,
-    property_R_i.unsqueeze(2)
-).squeeze(2))
+𝛾_i_s = F.elu(torch.sum(torch.stack(stacked_properties, dim=2), dim=2))
 
 # +
 # bilinear proyecction initialized to identity.
 W_L_plus_1 = torch.eye(EMBD_DIM, requires_grad=True)
 
 𝛾_i_e = F.elu(
-    torch.bmm(
-        torch.bmm(
+    torch.mul(torch.bmm(
             E.view(BATCH, -1, EMBD_DIM), 
-            W_L_plus_1.expand(BATCH, -1, EMBD_DIM)
-        ),
-        r_i.unsqueeze(2)
-    )
-).view(BATCH, len(nodes), len(nodes))
-# -
+            W_L_plus_1.expand(BATCH, EMBD_DIM, EMBD_DIM)
+        ), r_i.unsqueeze(1))
+).view(BATCH, len(nodes), len(nodes), EMBD_DIM)
 
-𝛾_i_s.shape, 𝛾_i_e.shape
+# +
+W_r = nn.Linear(EMBD_DIM, 1, bias=False)
 
-# update state probabilities (conected to node via relevant relation)
-# TODO: W_r ???
-p_i_r = torch.softmax(torch.bmm(
-    p_i.unsqueeze(1),
-    𝛾_i_e * adjacency_mask
-).squeeze(1), dim=1)
+p_i_r = F.softmax(W_r(torch.sum(torch.mul(
+    𝛾_i_e,
+    p_i.view(BATCH, -1, 1, 1)
+), dim=1)).squeeze(2), dim=1)
 
+# +
 # update state probabilities (property lookup)
-# TODO: W_s ???
-p_i_s = torch.softmax(𝛾_i_s, dim=1)
+W_s = nn.Linear(EMBD_DIM, 1, bias=False)
+
+p_i_s = F.softmax(W_s(𝛾_i_s).squeeze(2), dim=1)
+# -
 
 p_i = r_i_prime * p_i_r + (1 - r_i_prime) * p_i_s
 
@@ -287,7 +280,7 @@ p_i = r_i_prime * p_i_r + (1 - r_i_prime) * p_i_s
 # +
 # Sumarize final NSM state
 r_N = r[:,N,:]
-property_R_N = torch.softmax(torch.bmm(
+property_R_N = F.softmax(torch.bmm(
     D.expand(BATCH, -1, EMBD_DIM),
     r_N.unsqueeze(2)
 ), dim=1).squeeze(2)[:,:-1]

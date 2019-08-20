@@ -13,6 +13,7 @@ dist/
 
 # ipython/jupyter notebooks
 *.ipynb
+mrcnn-test.ipynb
 **/.ipynb_checkpoints/
 
 # Editor temporaries
