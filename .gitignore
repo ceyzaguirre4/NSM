@@ -1,2 +1,32 @@
-NSM.ipynb
-.ipynb_checkpoints/*
+# compilation and distribution
+__pycache__
+_ext
+*.pyc
+*.so
+*.egg-info/
+dist/
+
+# pytorch/python/numpy formats
+*.pth
+*.pkl
+*.npy
+
+# ipython/jupyter notebooks
+*.ipynb
+**/.ipynb_checkpoints/
+
+# Editor temporaries
+*.swn
+*.swo
+*.swp
+*~
+
+# vscode editor settings
+.vscode
+
+# MacOS
+.DS_Store
+
+# project dirs
+maskrcnn_benchmark/build
+_C.cpython-36m-x86_64-linux-gnu.so
