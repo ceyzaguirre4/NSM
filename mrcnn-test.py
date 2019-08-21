@@ -112,7 +112,7 @@ prediction = predictions[0]
 height, width = original_image.shape[:-1]
 prediction = prediction.resize((width, height))
 
-# + {"code_folding": [0, 3, 12, 35, 60], "run_control": {"marked": true}}
+# + {"code_folding": [0, 3, 12, 35], "run_control": {"marked": true}}
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 
@@ -146,31 +146,6 @@ def overlay_boxes(image, predictions):
                               tuple(color), 1)
 
     return image
-
-
-def overlay_class_names(image, predictions):
-    """
-    Adds detected class names and scores in the positions defined by the
-    top-left corner of the predicted bounding box
-
-    Arguments:
-        image (np.ndarray): an image as returned by OpenCV
-        predictions (BoxList): the result of the computation by the model.
-            It should contain the field `scores` and `labels`.
-    """
-    scores = predictions.get_field("scores").tolist()
-    labels = predictions.get_field("labels").tolist()
-    labels = [CATEGORIES[i] for i in labels]
-    boxes = predictions.bbox
-
-    template = "{}: {:.2f}"
-    for box, score, label in zip(boxes, scores, labels):
-        x, y = box[:2]
-        s = template.format(label, score)
-        cv2.putText(image, s, (x, y), cv2.FONT_HERSHEY_SIMPLEX, .5,
-                    (255, 255, 255), 1)
-
-    return
 
 
 def select_top_predictions(predictions, threshold=0.3):
