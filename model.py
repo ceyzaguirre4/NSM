@@ -23,7 +23,7 @@ class NSM(nn.Module):
         super().__init__()
 
         self.W = torch.eye(EMBD_DIM, requires_grad=True)
-        self.property_W = [torch.eye(EMBD_DIM, requires_grad=True) for _ in range(L+1)]
+        self.property_W = torch.stack([torch.eye(EMBD_DIM, requires_grad=True) for _ in range(L + 1)], dim=0)
         self.W_L_plus_1 = torch.eye(EMBD_DIM, requires_grad=True)
         self.W_r = nn.Linear(EMBD_DIM, 1, bias=False)
         self.W_s = nn.Linear(EMBD_DIM, 1, bias=False)
@@ -96,19 +96,18 @@ class NSM(nn.Module):
             r_i_prime = R_i[:,-1].unsqueeze(1)
             property_R_i = R_i[:,:-1]
 
-            # bilinear proyecctions (one for each property).
-            stacked_properties = []
-            for property_idx in range(L + 1):
-                stacked_properties.append(
+            # bilinear proyecctions (one for each property) initialized to identity.
+            𝛾_i_s = F.elu(torch.sum(
+                torch.mul(
+                    property_R_i.view(BATCH, -1, 1, 1),
                     torch.mul(
-                        torch.mul(
-                            r_i.unsqueeze(1),
-                            torch.bmm(
-                                S[:, :, property_idx, :],
-                                self.property_W[property_idx].expand(BATCH, EMBD_DIM, EMBD_DIM))),
-                        property_R_i[:, property_idx].view(BATCH, 1, -1).expand(BATCH, 1, EMBD_DIM)))
-
-            𝛾_i_s = F.elu(torch.sum(torch.stack(stacked_properties, dim=2), dim=2))
+                        torch.matmul(
+                            S.transpose(2,1), 
+                            self.property_W
+                        ), r_i.view(BATCH, 1, 1, EMBD_DIM)
+                    )
+                ), dim=1
+            ))
 
 
             # bilinear proyecction 

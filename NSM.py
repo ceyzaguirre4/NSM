@@ -44,7 +44,7 @@ def to_glove(token):
     return torch.rand(EMBD_DIM)
 
 
-# + {"hidden": true, "cell_type": "markdown"}
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
 # ### Dummy data
 
 # + {"hidden": true}
@@ -59,7 +59,7 @@ state_identities = ['cat', 'shirt']
 
 relationships = ['holding', 'behind']
 
-# + {"hidden": true, "cell_type": "markdown"}
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
 # ## Preparation
 
 # + {"hidden": true}
@@ -195,15 +195,17 @@ h, _ = decoder_lstm(q.expand(BATCH, N+1, EMBD_DIM), encoder_hidden)
 # + {"hidden": true}
 # obtain r (reasoning instructions) by expressing each h_i as a pondered sum of V
 r = torch.bmm(torch.softmax(torch.bmm(h, V.transpose(1, 2)), dim=2), V)
-# -
 
+# + {"heading_collapsed": true, "cell_type": "markdown"}
 # # Model Simulation
 #
 #
 
+# + {"hidden": true}
 # initial p_0 is uniform over states
 p_i = torch.ones(BATCH, len(nodes)) / len(nodes)
 
+# + {"hidden": true, "cell_type": "markdown"}
 # (everything below is inside recurrent loop)
 #
 # ~~~python
@@ -211,14 +213,17 @@ p_i = torch.ones(BATCH, len(nodes)) / len(nodes)
 #     MODEL SIMULATION
 # ~~~
 
-# +
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# ## $R_i$
+
+# + {"hidden": true}
 # for the ith recurrent step... 
 i=0
 
 # the appropiate reasoning instruction for the ith step
 r_i = r[:,i,:]
 
-# +
+# + {"hidden": true}
 R_i = F.softmax(torch.bmm(
     D.expand(BATCH, -1, EMBD_DIM),
     r_i.unsqueeze(2)
@@ -228,24 +233,54 @@ R_i = F.softmax(torch.bmm(
 r_i_prime = R_i[:,-1].unsqueeze(1)
 property_R_i = R_i[:,:-1]
 
-# +
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# ## $𝛾_i_s$
+#
+# $$
+#     \sigma \left( \sum_{j=0}^L R_i(j)(r_i \circ W_j s^j) \right)
+# $$
+
+# + {"hidden": true}
 # bilinear proyecctions (one for each property) initialized to identity.
-property_W = [torch.eye(EMBD_DIM, requires_grad=True) for _ in range(L + 1)]
+property_W = torch.stack([torch.eye(EMBD_DIM, requires_grad=True) for _ in range(L + 1)], dim=0)
 
-stacked_properties = []
-for property_idx in range(L + 1):
-    stacked_properties.append(
+𝛾_i_s = F.elu(torch.sum(
+    torch.mul(
+        property_R_i.view(BATCH, -1, 1, 1),
         torch.mul(
-            torch.mul(
-                r_i.unsqueeze(1),
-                torch.bmm(
-                    S[:, :, property_idx, :],
-                    property_W[property_idx].expand(BATCH, EMBD_DIM, EMBD_DIM))),
-            property_R_i[:, property_idx].view(BATCH, 1, -1).expand(BATCH, 1, EMBD_DIM)))
+            torch.matmul(
+                S.transpose(2,1), 
+                property_W
+            ), r_i.view(BATCH, 1, 1, EMBD_DIM)
+        )
+    ), dim=1
+))
 
-𝛾_i_s = F.elu(torch.sum(torch.stack(stacked_properties, dim=2), dim=2))
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# #### Alternative
 
-# +
+# + {"code_folding": [], "hidden": true}
+# stacked_properties = []
+# for property_idx in range(L + 1):
+#     stacked_properties.append(
+#         torch.mul(
+#             torch.mul(
+#                 r_i.unsqueeze(1),
+#                 torch.bmm(
+#                     S[:, :, property_idx, :],
+#                     property_W[property_idx].expand(BATCH, EMBD_DIM, EMBD_DIM))),
+#             property_R_i[:, property_idx].view(BATCH, 1, -1).expand(BATCH, 1, EMBD_DIM)))
+
+# alt_𝛾_i_s = F.elu(torch.sum(torch.stack(stacked_properties, dim=2), dim=2))
+# assert (alt_𝛾_i_s == 𝛾_i_s).all()
+
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# ## $𝛾_i_e$
+# $$
+#     \sigma \left( r_i \circ W_{L+1} e' \right)
+# $$
+
+# + {"hidden": true}
 # bilinear proyecction initialized to identity.
 W_L_plus_1 = torch.eye(EMBD_DIM, requires_grad=True)
 
@@ -256,22 +291,76 @@ W_L_plus_1 = torch.eye(EMBD_DIM, requires_grad=True)
         ), r_i.unsqueeze(1))
 ).view(BATCH, len(nodes), len(nodes), EMBD_DIM)
 
-# +
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# ## $p_i^r$
+#
+# $$
+# softmax_{s \in S}\left(W_r \cdot\sum_{(s', s) \in E} p_i(s') \cdot \gamma_i((s', s))\right)
+# $$
+
+# + {"hidden": true}
 W_r = nn.Linear(EMBD_DIM, 1, bias=False)
 
-p_i_r = F.softmax(W_r(torch.sum(torch.mul(
-    𝛾_i_e,
-    p_i.view(BATCH, -1, 1, 1)
-), dim=1)).squeeze(2), dim=1)
+p_i_r = F.softmax(
+    W_r(
+        torch.sum(
+            torch.mul(
+                𝛾_i_e,
+                p_i.view(BATCH, -1, 1, 1)
+            ), dim=1)).squeeze(2), dim=1)
 
-# +
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# #### Alternative
+#
+# To check equivalency between matrix computation and math.
+
+# + {"hidden": true}
+# # adjacency matrix
+# adj = 𝛾_i_e.sum(dim=3) > 0
+# adj[0]
+
+# + {"hidden": true}
+# batch, height, width, dim = 𝛾_i_e.shape
+
+# all_batch = []
+# for batch_idx in range(batch):
+#     all_nodes = []
+#     for x in range(width):
+#         weighted_sum = torch.zeros(dim)
+#         for y in range(height):
+#             if adj[batch_idx, y, x]:  # (s', s) \in E
+#                 weighted_sum += p_i[batch_idx, y] * 𝛾_i_e[batch_idx, y, x]    # \sum
+#         all_nodes.append(
+#             W_r(weighted_sum).squeeze(0)
+#         )
+#     all_batch.append(torch.stack(all_nodes, dim=0))
+# alt_p_i_r = F.softmax(torch.stack(all_batch, dim=0), dim=1)
+
+# assert (p_i_r == alt_p_i_r).all()
+
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# ## $p_i^s$
+#
+# $$
+# softmax_{s \in S}(W_s \cdot \gamma_i(s))
+# $$
+
+# + {"hidden": true}
 # update state probabilities (property lookup)
 W_s = nn.Linear(EMBD_DIM, 1, bias=False)
 
 p_i_s = F.softmax(W_s(𝛾_i_s).squeeze(2), dim=1)
-# -
 
+# + {"heading_collapsed": true, "hidden": true, "cell_type": "markdown"}
+# ## $p_i$
+#
+# $$
+# r_i' \cdot p_i^r + (1 - r_i') \cdot p_i^s
+# $$
+
+# + {"hidden": true}
 p_i = r_i_prime * p_i_r + (1 - r_i_prime) * p_i_s
+# -
 
 # # Final clasifier
 #
