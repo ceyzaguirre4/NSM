@@ -6,11 +6,11 @@ As can be expected, the code is incomplete and makes several assumptions where t
 For the time being this code is not ready to run and several steps are needed for it to train on any VQA dataset.
 Principal among these is the need for a functioning [graph-rcnn](https://arxiv.org/pdf/1808.00191.pdf) to generate the scene graphs.
 
-In the meantime, I hope the code helps readers understand better the paper, and I'm open to any colaborators who wish to help with features or efficiency.
+In the meantime, I hope the code helps readers understand better the paper, and I'm open to any collaborators who wish to help with features or efficiency.
 
 ## RCNN compilation
 
-We use Facebooks implementation of maskrcnn: [maskrcnn-benchmark](https://github.com/facebookresearch/maskrcnn-benchmark). To compile this code use the fillowing snippet.
+We use Facebook's implementation of maskrcnn: [maskrcnn-benchmark](https://github.com/facebookresearch/maskrcnn-benchmark). To compile this code use the following snippet.
 
 ```
 # pytorch, apex and maskrcnn_benchmark must be compiled with the same version of CUDA.
