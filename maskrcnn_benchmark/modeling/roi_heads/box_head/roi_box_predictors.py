@@ -28,7 +28,7 @@ class FastRCNNPredictor(nn.Module):
         x = x.view(x.size(0), -1)
         cls_logit = self.cls_score(x)
         bbox_pred = self.bbox_pred(x)
-        return cls_logit, bbox_pred
+        return cls_logit, bbox_pred, x
 
 
 @registry.ROI_BOX_PREDICTOR.register("FPNPredictor")

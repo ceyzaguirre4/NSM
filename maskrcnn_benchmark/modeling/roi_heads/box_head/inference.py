@@ -54,7 +54,7 @@ class PostProcessor(nn.Module):
             results (list[BoxList]): one BoxList for each image, containing
                 the extra fields labels and scores
         """
-        class_logits, box_regression = x
+        class_logits, box_regression, features = x
         class_prob = F.softmax(class_logits, -1)
 
         # TODO think about a representation of batch of boxes
@@ -74,15 +74,16 @@ class PostProcessor(nn.Module):
 
         proposals = proposals.split(boxes_per_image, dim=0)
         class_prob = class_prob.split(boxes_per_image, dim=0)
+        features = features.split(boxes_per_image, dim=0)
 
         results = []
-        for prob, boxes_per_img, image_shape in zip(
-            class_prob, proposals, image_shapes
+        for prob, boxes_per_img, feats, image_shape in zip(
+            class_prob, proposals, features, image_shapes
         ):
             boxlist = self.prepare_boxlist(boxes_per_img, prob, image_shape)
             boxlist = boxlist.clip_to_image(remove_empty=False)
             if not self.bbox_aug_enabled:  # If bbox aug is enabled, we will do it later
-                boxlist = self.filter_results(boxlist, num_classes)
+                boxlist = self.filter_results(boxlist, num_classes, feats)
             results.append(boxlist)
         return results
 
@@ -105,7 +106,7 @@ class PostProcessor(nn.Module):
         boxlist.add_field("scores", scores)
         return boxlist
 
-    def filter_results(self, boxlist, num_classes):
+    def filter_results(self, boxlist, num_classes, feats):
         """Returns bounding-box detection results by thresholding on scores and
         applying non-maximum suppression (NMS).
         """
@@ -121,10 +122,14 @@ class PostProcessor(nn.Module):
         inds_all = scores > self.score_thresh
         for j in range(1, num_classes):
             inds = inds_all[:, j].nonzero().squeeze(1)
+            scores_softmax = scores[inds]
             scores_j = scores[inds, j]
+            feats_j = feats[inds]
             boxes_j = boxes[inds, j * 4 : (j + 1) * 4]
             boxlist_for_class = BoxList(boxes_j, boxlist.size, mode="xyxy")
             boxlist_for_class.add_field("scores", scores_j)
+            boxlist_for_class.add_field("features", feats_j)
+            boxlist_for_class.add_field("scores_softmax", scores_softmax)
             boxlist_for_class = boxlist_nms(
                 boxlist_for_class, self.nms
             )
